@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UpNet", "UpNet\UpNet.csproj", "{F609B2C9-D2C7-428A-AF58-20F6F4601589}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UpNet.Graphics", "UpNet.Graphics\UpNet.Graphics.csproj", "{8C3C85C6-F986-4733-B2D7-AA647E688D99}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F609B2C9-D2C7-428A-AF58-20F6F4601589}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F609B2C9-D2C7-428A-AF58-20F6F4601589}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F609B2C9-D2C7-428A-AF58-20F6F4601589}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F609B2C9-D2C7-428A-AF58-20F6F4601589}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8C3C85C6-F986-4733-B2D7-AA647E688D99}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C3C85C6-F986-4733-B2D7-AA647E688D99}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C3C85C6-F986-4733-B2D7-AA647E688D99}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C3C85C6-F986-4733-B2D7-AA647E688D99}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

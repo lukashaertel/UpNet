@@ -12,6 +12,33 @@ namespace UpNet.Graphics.Graphics.VertexArray
     public sealed class ManagedVertexArray : Managed<uint>
     {
         /// <summary>
+        /// Returns the size of the vertex attrib pointer type.
+        /// </summary>
+        /// <param name="type">The type of which to return the size in bytes.</param>
+        /// <returns>Returns the size in bytes.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when an invalid value is passed as type.</exception>
+        public static int SizeInBytes(VertexAttribPointerType type) =>
+            type switch
+            {
+                VertexAttribPointerType.Byte => sizeof(sbyte),
+                VertexAttribPointerType.UnsignedByte => sizeof(byte),
+                VertexAttribPointerType.Short => sizeof(short),
+                VertexAttribPointerType.UnsignedShort => sizeof(ushort),
+                VertexAttribPointerType.Int => sizeof(int),
+                VertexAttribPointerType.UnsignedInt => sizeof(uint),
+                VertexAttribPointerType.Float => sizeof(float),
+                VertexAttribPointerType.Double => sizeof(double),
+                VertexAttribPointerType.UnsignedInt2101010Rev => ((2 + 10 + 10 + 10) / 8),
+                VertexAttribPointerType.UnsignedInt10f11f11fRev => ((10 + 11 + 11) / 8),
+                VertexAttribPointerType.HalfFloat => sizeof(ushort),
+                VertexAttribPointerType.Int2101010Rev => ((2 + 10 + 10 + 10) / 8),
+                VertexAttribPointerType.Fixed => ((16 + 16) / 8),
+                VertexAttribPointerType.Int64Nv => sizeof(long),
+                VertexAttribPointerType.UnsignedInt64Nv => sizeof(ulong),
+                _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+            };
+
+        /// <summary>
         /// Gets the current vertex array.
         /// </summary>
         public static uint Current
@@ -23,7 +50,7 @@ namespace UpNet.Graphics.Graphics.VertexArray
 
                 // Get vertex array, throw errors.
                 var vertexArray = 0;
-                GL.GetInteger(GetPName.VertexArray, ref vertexArray);
+                GL.GetInteger(GetPName.VertexArrayBinding, ref vertexArray);
                 GLException.ThrowGlErrors("Error getting current vertex array");
 
                 // Return vertex array.
@@ -142,14 +169,32 @@ namespace UpNet.Graphics.Graphics.VertexArray
             // Ensure no fault.
             GLException.ThrowPreceding();
 
+            // Compute actual stride value.
+            var stride = layout.Stride.Type switch
+            {
+                UnitType.Bytes => layout.Stride.Value,
+                UnitType.Components => layout.Stride.Value * SizeInBytes(layout.Type),
+                UnitType.Elements => layout.Stride.Value * layout.Size * SizeInBytes(layout.Type),
+                _ => throw new ArgumentOutOfRangeException(nameof(layout), layout, null)
+            };
+
+            // Compute actual offset value.
+            var offset = layout.Offset.Type switch
+            {
+                UnitType.Bytes => layout.Offset.Value,
+                UnitType.Components => layout.Offset.Value * SizeInBytes(layout.Type),
+                UnitType.Elements => layout.Offset.Value * layout.Size * SizeInBytes(layout.Type),
+                _ => throw new ArgumentOutOfRangeException(nameof(layout), layout, null)
+            };
+
             var revert = SwapIn();
             GL.VertexAttribPointer(
                 (uint) attrib.Location,
                 layout.Size,
                 layout.Type,
                 layout.Normalized,
-                layout.Stride,
-                layout.Offset);
+                stride,
+                offset);
             GLException.ThrowGlErrors($"Error setting {attrib.Name} array layout");
             SwapBackOut(revert);
         }

@@ -58,7 +58,9 @@ namespace UpNet.Graphics.Graphics.Buffers
         /// </summary>
         /// <param name="target">The buffer target.</param>
         /// <param name="usage">The buffer usage.</param>
-        public ManagedBuffer(BufferTargetARB target, BufferUsageARB usage = BufferUsageARB.StreamDraw)
+        public ManagedBuffer(
+            BufferTargetARB target = BufferTargetARB.ArrayBuffer,
+            BufferUsageARB usage = BufferUsageARB.StaticDraw)
         {
             // Ensure no fault.
             GLException.ThrowPreceding();

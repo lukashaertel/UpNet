@@ -58,13 +58,23 @@ namespace UpNet.Graphics
             base.OnKeyDown(e);
         }
 
-        // private MainProgram Program { get; set; }
-
         private ManagedProgram Program { get; set; }
+        private ManagedVertexArray Planet { get; set; }
 
-        private FontProgram FontProgram { get; set; }
-        private MainVertexArray Planet { get; set; }
-        private FontVertexArray Text { get; set; }
+        private ManagedBuffer PlanetPosition { get; set; }
+        private ManagedBuffer PlanetTexCoord { get; set; }
+        private ManagedBuffer PlanetNormal { get; set; }
+        private ManagedBuffer PlanetBitangent { get; set; }
+        private ManagedBuffer PlanetTangent { get; set; }
+        private ManagedBuffer PlanetColor { get; set; }
+        private ManagedBuffer PlanetElements { get; set; }
+        private ManagedProgram FontProgram { get; set; }
+        private ManagedVertexArray Text { get; set; }
+        private ManagedBuffer TextPosition { get; set; }
+        private ManagedBuffer TextTexCoord { get; set; }
+        private ManagedBuffer TextColor { get; set; }
+        private ManagedBuffer TextElements { get; set; }
+
 
         private ManagedTexture2D Ground { get; set; }
         private ManagedTexture2D Clouds { get; set; }
@@ -106,13 +116,19 @@ namespace UpNet.Graphics
             Program["uHeight"].Set(TextureUnit.Texture1);
             Program.Disuse();
 
-            FontProgram = new FontProgram();
-            FontProgram.Attach(await LegacyProgramArg.FromPathsAsync("Resources/Font.vert", "Resources/Font.frag"));
-            using (FontProgram.Bind())
-            {
-                FontProgram.LoadTexture(TextureUnit.Texture0);
-                FontProgram.LoadGlyphSettings(5f, 32f, 32f);
-            }
+            // Load shaders.
+            (shaderVert, shaderFrag) = await Task.WhenAll(
+                File.ReadAllTextAsync("Resources/Font.vert"),
+                File.ReadAllTextAsync("Resources/Font.frag"));
+
+            FontProgram = new ManagedProgram();
+            FontProgram.AttachShader(ShaderType.VertexShader, shaderVert);
+            FontProgram.AttachShader(ShaderType.FragmentShader, shaderFrag);
+            FontProgram.Link();
+            FontProgram.Use();
+            FontProgram["uTexture"].Set(TextureUnit.Texture0);
+            FontProgram["uDistanceFactor"].Set(32f * 32f / 5f);
+            FontProgram.Disuse();
 
             // Load font.
             var font = BitmapFontLoader.LoadFontFromTextFile("Resources/Cantarell-Regular.fnt");
@@ -134,132 +150,186 @@ namespace UpNet.Graphics
             var pos = Icosphere.DataPos;
             var ind = Icosphere.DataIndices;
 
-            Planet = new MainVertexArray();
-            using (Planet.Bind())
+
+            var attribPosition = Program.FindRequiredAttrib("aPosition");
+            var attribTexCoord = Program.FindRequiredAttrib("aTexCoord");
+            var attribNormal = Program.FindRequiredAttrib("aNormal");
+            var attribBitangent = Program.FindRequiredAttrib("aBitangent");
+            var attribTangent = Program.FindRequiredAttrib("aTangent");
+            var attribColor = Program.FindRequiredAttrib("aColor");
+
+            Planet = new ManagedVertexArray();
+            Planet.Bind();
+            Planet.Enable(attribPosition);
+            PlanetPosition = new ManagedBuffer();
+            PlanetPosition.Bind();
+            PlanetPosition.WriteData(pos);
+            Planet.Apply(attribPosition, new PointerLayout(3, VertexAttribPointerType.Float));
+
+            Planet.Enable(attribTexCoord);
+            PlanetTexCoord = new ManagedBuffer();
+            PlanetTexCoord.Bind();
+            PlanetTexCoord.WriteData(Icosphere.ComputeTexCoords(pos));
+            Planet.Apply(attribTexCoord, new PointerLayout(2, VertexAttribPointerType.Float));
+
+            Planet.Enable(attribNormal);
+            PlanetNormal = new ManagedBuffer();
+            PlanetNormal.Bind();
+            PlanetNormal.WriteData(Icosphere.ComputeNormals(pos));
+            Planet.Apply(attribNormal, new PointerLayout(3, VertexAttribPointerType.Float));
+
+            Planet.Enable(attribBitangent);
+            PlanetBitangent = new ManagedBuffer();
+            PlanetBitangent.Bind();
+            PlanetBitangent.WriteData(Icosphere.ComputeBitangents(pos));
+            Planet.Apply(attribBitangent, new PointerLayout(3, VertexAttribPointerType.Float));
+
+            Planet.Enable(attribTangent);
+            PlanetTangent = new ManagedBuffer();
+            PlanetTangent.Bind();
+            PlanetTangent.WriteData(Icosphere.ComputeTangents(pos));
+            Planet.Apply(attribTangent, new PointerLayout(3, VertexAttribPointerType.Float));
+
+            Planet.Enable(attribColor);
+            PlanetColor = new ManagedBuffer();
+            PlanetColor.Bind();
+            PlanetColor.WriteData(Icosphere.ComputeColors(pos));
+            Planet.Apply(attribColor, new PointerLayout(3, VertexAttribPointerType.UnsignedByte, normalized: true));
+
+            PlanetElements = new ManagedBuffer(BufferTargetARB.ElementArrayBuffer);
+            PlanetElements.Bind();
+            PlanetElements.WriteData(ind);
+            Planet.Unbind();
+
+            Text = new ManagedVertexArray();
+            Text.Bind();
+            var text = "Hell world";
+            var positions = new List<float>();
+            var colors = new List<uint>();
+            var texCoords = new List<float>();
+            var indices = new List<uint>();
+
+            var x = 0;
+            var y = 0;
+            var previousCharacter = ' ';
+            var space = font['i'].Width;
+
+            foreach (var character in text)
             {
-                Planet.Attach(Program);
-                Planet.LoadPositionData(pos);
-                Planet.LoadTexCoordData(Icosphere.ComputeTexCoords(pos));
-                Planet.LoadNormalData(Icosphere.ComputeNormals(pos));
-                Planet.LoadBitangentData(Icosphere.ComputeBitangents(pos));
-                Planet.LoadTangentData(Icosphere.ComputeTangents(pos));
-                Planet.LoadColorData(Icosphere.ComputeColors(pos));
-                Planet.LoadElementsData(ind);
-            }
-
-            Text = new FontVertexArray();
-            using (Text.Bind())
-            {
-                var text = "Hell world";
-                var positions = new List<float>();
-                var colors = new List<uint>();
-                var texCoords = new List<float>();
-                var indices = new List<uint>();
-
-                var x = 0;
-                var y = 0;
-                var previousCharacter = ' ';
-                var space = font['i'].Width;
-
-                foreach (var character in text)
+                switch (character)
                 {
-                    switch (character)
-                    {
-                        case '\n':
-                            x = 0;
-                            y -= font.LineHeight;
-                            break;
+                    case '\n':
+                        x = 0;
+                        y -= font.LineHeight;
+                        break;
 
-                        case '\r':
-                            break;
+                    case '\r':
+                        break;
 
-                        case ' ':
-                            x += space;
-                            break;
+                    case ' ':
+                        x += space;
+                        break;
 
-                        case '\t':
-                            x += 4 * space;
-                            break;
+                    case '\t':
+                        x += 4 * space;
+                        break;
 
-                        default:
-                            var data = font[character];
-                            var kerning = font.GetKerning(previousCharacter, character);
+                    default:
+                        var data = font[character];
+                        var kerning = font.GetKerning(previousCharacter, character);
 
-                            if (!data.IsEmpty)
-                            {
-                                indices.Add((uint) (positions.Count / 3 + 0));
-                                indices.Add((uint) (positions.Count / 3 + 1));
-                                indices.Add((uint) (positions.Count / 3 + 2));
-                                indices.Add((uint) (positions.Count / 3 + 2));
-                                indices.Add((uint) (positions.Count / 3 + 3));
-                                indices.Add((uint) (positions.Count / 3 + 0));
+                        if (!data.IsEmpty)
+                        {
+                            indices.Add((uint) (positions.Count / 3 + 0));
+                            indices.Add((uint) (positions.Count / 3 + 1));
+                            indices.Add((uint) (positions.Count / 3 + 2));
+                            indices.Add((uint) (positions.Count / 3 + 2));
+                            indices.Add((uint) (positions.Count / 3 + 3));
+                            indices.Add((uint) (positions.Count / 3 + 0));
 
-                                var cx = x + data.XOffset + kerning;
-                                var cy = y + data.YOffset;
-                                positions.Add(cx);
-                                positions.Add(-cy - data.Height);
-                                positions.Add(0f);
+                            var cx = x + data.XOffset + kerning;
+                            var cy = y + data.YOffset;
+                            positions.Add(cx);
+                            positions.Add(-cy - data.Height);
+                            positions.Add(0f);
 
-                                positions.Add(cx);
-                                positions.Add(-cy);
-                                positions.Add(0f);
+                            positions.Add(cx);
+                            positions.Add(-cy);
+                            positions.Add(0f);
 
-                                positions.Add(cx + data.Width);
-                                positions.Add(-cy);
-                                positions.Add(0f);
+                            positions.Add(cx + data.Width);
+                            positions.Add(-cy);
+                            positions.Add(0f);
 
-                                positions.Add(cx + data.Width);
-                                positions.Add(-cy - data.Height);
-                                positions.Add(0f);
+                            positions.Add(cx + data.Width);
+                            positions.Add(-cy - data.Height);
+                            positions.Add(0f);
 
-                                texCoords.Add(data.X / (float) cantarellImage.Width);
-                                texCoords.Add(1f - (data.Y + data.Height) / (float) cantarellImage.Height);
-                                texCoords.Add(data.X / (float) cantarellImage.Width);
-                                texCoords.Add(1f - data.Y / (float) cantarellImage.Height);
-                                texCoords.Add((data.X + data.Width) / (float) cantarellImage.Width);
-                                texCoords.Add(1f - data.Y / (float) cantarellImage.Height);
-                                texCoords.Add((data.X + data.Width) / (float) cantarellImage.Width);
-                                texCoords.Add(1f - (data.Y + data.Height) / (float) cantarellImage.Height);
+                            texCoords.Add(data.X / (float) cantarellImage.Width);
+                            texCoords.Add(1f - (data.Y + data.Height) / (float) cantarellImage.Height);
+                            texCoords.Add(data.X / (float) cantarellImage.Width);
+                            texCoords.Add(1f - data.Y / (float) cantarellImage.Height);
+                            texCoords.Add((data.X + data.Width) / (float) cantarellImage.Width);
+                            texCoords.Add(1f - data.Y / (float) cantarellImage.Height);
+                            texCoords.Add((data.X + data.Width) / (float) cantarellImage.Width);
+                            texCoords.Add(1f - (data.Y + data.Height) / (float) cantarellImage.Height);
 
-                                colors.Add(0xffffffff);
-                                colors.Add(0xffffffff);
-                                colors.Add(0xffffffff);
-                                colors.Add(0xffffffff);
+                            colors.Add(0xffffffff);
+                            colors.Add(0xffffffff);
+                            colors.Add(0xffffffff);
+                            colors.Add(0xffffffff);
 
-                                x += data.XAdvance + kerning;
-                            }
+                            x += data.XAdvance + kerning;
+                        }
 
-                            break;
-                    }
-
-                    previousCharacter = character;
+                        break;
                 }
 
-                Text.Attach(FontProgram);
-                Text.LoadPositionData(positions.ToArray());
-                Text.LoadColorData(colors.ToArray());
-                Text.LoadTexCoordData(texCoords.ToArray());
-                Text.LoadElementsData(indices.ToArray());
+                previousCharacter = character;
             }
+
+            var attribFontPosition = FontProgram.FindRequiredAttrib("aPosition");
+            var attribFontTexCoord = FontProgram.FindRequiredAttrib("aTexCoord");
+            var attribFontColor = FontProgram.FindRequiredAttrib("aColor");
+
+            Text.Enable(attribFontPosition);
+            TextPosition = new ManagedBuffer();
+            TextPosition.Bind();
+            TextPosition.WriteData(positions.ToArray());
+            Text.Apply(attribFontPosition, new PointerLayout(3, VertexAttribPointerType.Float));
+
+            Text.Enable(attribFontTexCoord);
+            TextTexCoord = new ManagedBuffer();
+            TextTexCoord.Bind();
+            TextTexCoord.WriteData(texCoords.ToArray());
+            Text.Apply(attribFontTexCoord, new PointerLayout(2, VertexAttribPointerType.Float));
+
+            Text.Enable(attribFontColor);
+            TextColor = new ManagedBuffer();
+            TextColor.Bind();
+            TextColor.WriteData(colors.ToArray());
+            Text.Apply(attribFontColor, new PointerLayout(4, VertexAttribPointerType.UnsignedByte, normalized: true));
+
+            TextElements = new ManagedBuffer(BufferTargetARB.ElementArrayBuffer);
+            TextElements.Bind();
+            TextElements.WriteData(indices.ToArray());
+            Text.Unbind();
 
             Task.Factory.StartNew(async () =>
             {
-                for (var i = 0; i < 6; i++)
+                for (var i = 0; i < 4; i++)
                 {
                     await Task.Delay(1000);
                     (pos, ind) = Icosphere.SubdivideNoReuse(pos, ind);
                     await Dispatcher.EnqueueAsync(delegate
                     {
-                        using (Planet.Bind())
-                        {
-                            Planet.LoadPositionData(pos);
-                            Planet.LoadTexCoordData(Icosphere.ComputeTexCoords(pos));
-                            Planet.LoadNormalData(Icosphere.ComputeNormals(pos));
-                            Planet.LoadBitangentData(Icosphere.ComputeBitangents(pos));
-                            Planet.LoadTangentData(Icosphere.ComputeTangents(pos));
-                            Planet.LoadColorData(Icosphere.ComputeColors(pos));
-                            Planet.LoadElementsData(ind);
-                        }
+                        PlanetPosition.WriteData(pos);
+                        PlanetTexCoord.WriteData(Icosphere.ComputeTexCoords(pos));
+                        PlanetNormal.WriteData(Icosphere.ComputeNormals(pos));
+                        PlanetBitangent.WriteData(Icosphere.ComputeBitangents(pos));
+                        PlanetTangent.WriteData(Icosphere.ComputeTangents(pos));
+                        PlanetColor.WriteData(Icosphere.ComputeColors(pos));
+                        PlanetElements.WriteData(ind);
                     });
                 }
             }, default, default, TaskScheduler.Default);
@@ -341,51 +411,58 @@ namespace UpNet.Graphics
             GL.ActiveTexture(TextureUnit.Texture1);
             Heightmap.Bind();
             GL.ActiveTexture(TextureUnit.Texture0);
+            Ground.Bind();
 
             // Use shader. Set matrix to combined view and draw.
             Program.Use();
-            using (Planet.Bind())
+            Program["uModel"].Set(Matrix4.CreateRotationX(0.3f) *
+                                  Matrix4.CreateRotationY(totalSeconds / 60f));
+            Program["uPV"].Set(ProjectionView);
+            Program["uTint"].Set(1f, 1f, 1f, 1f);
+            Program["uHeightScale"].Set(0.02f);
+
+            GL.Enable(EnableCap.CullFace);
+            GL.Disable(EnableCap.Blend);
+
+            Planet.Bind();
+            GL.DrawElements(
+                PrimitiveType.Triangles,
+                PlanetElements.SizeInBytes / 4,
+                DrawElementsType.UnsignedInt, 0);
+
+            GL.Disable(EnableCap.CullFace);
+            GL.Enable(EnableCap.Blend);
+            GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
+            Program["uHeightScale"].Set(0.0f);
+
+            Clouds.Bind();
+            const float min = 0.005f;
+            const float max = 0.015f;
+            const float step = 0.001f;
+
+            const float m = (min + max) / 2f;
+            const float d = max - m;
+            const float a = (max - min) / step;
+            for (var o = min; o <= max; o += step)
             {
+                var x = (o - m) / d;
+                var factor = MathHelper.Min(1f, 1.4f - x * x * x * x);
+
+                Program["uTint"].Set(1f, 1f, 1f, factor / a);
                 Program["uModel"].Set(Matrix4.CreateRotationX(0.3f) *
-                                      Matrix4.CreateRotationY(totalSeconds / 60f));
-                Program["uPV"].Set(ProjectionView);
-                Program["uTint"].Set(1f, 1f, 1f, 1f);
-                Program["uHeightScale"].Set(0.02f);
+                                      Matrix4.CreateScale(1.00f + o) *
+                                      Matrix4.CreateRotationY(totalSeconds * 1.4f / 60f));
 
-                GL.Enable(EnableCap.CullFace);
-                GL.Disable(EnableCap.Blend);
-
-                Ground.Bind();
-                Planet.Draw();
-                Ground.Unbind();
-
-                GL.Disable(EnableCap.CullFace);
-                GL.Enable(EnableCap.Blend);
-                GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
-                Program["uHeightScale"].Set(0.0f);
-
-                Clouds.Bind();
-                const float min = 0.005f;
-                const float max = 0.015f;
-                const float step = 0.0005f;
-
-                const float m = (min + max) / 2f;
-                const float d = max - m;
-                const float a = (max - min) / step;
-                for (var o = min; o <= max; o += step)
-                {
-                    var x = (o - m) / d;
-                    var factor = MathHelper.Min(1f, 1.4f - x * x * x * x);
-
-                    Program["uTint"].Set(1f, 1f, 1f, factor / a);
-                    Program["uModel"].Set(Matrix4.CreateRotationX(0.3f) *
-                                          Matrix4.CreateScale(1.00f + o) *
-                                          Matrix4.CreateRotationY(totalSeconds * 1.4f / 60f));
-                    Planet.Draw();
-                }
+                GL.DrawElements(
+                    PrimitiveType.Triangles,
+                    PlanetElements.SizeInBytes / 4,
+                    DrawElementsType.UnsignedInt, 0);
             }
 
-            ManagedProgram.UseNone();
+            Ground.Unbind();
+            Planet.Unbind();
+
+            Program.Disuse();
 
             GL.Disable(EnableCap.CullFace);
             GL.Enable(EnableCap.Blend);
@@ -394,15 +471,19 @@ namespace UpNet.Graphics
             GL.ActiveTexture(TextureUnit.Texture0);
             Cantarell.Bind();
 
-            using (FontProgram.Bind())
-            using (Text.Bind())
-            using (LegacyTexture.Activate(TextureUnit.Texture0))
-            {
-                FontProgram.LoadModel(Matrix4.CreateRotationY(MathHelper.PiOver2) * Matrix4.CreateScale(1 / 200f) *
+            FontProgram.Use();
+            Text.Bind();
+            FontProgram["uModel"].Set(Matrix4.CreateRotationY(MathHelper.PiOver2) * Matrix4.CreateScale(1 / 200f) *
                                       Matrix4.CreateTranslation(1.2f, 0f, 0f));
-                FontProgram.LoadProjectionView(ProjectionView);
-                Text.Draw();
-            }
+            FontProgram["uPV"].Set(ProjectionView);
+
+            GL.DrawElements(
+                PrimitiveType.Triangles,
+                TextElements.SizeInBytes / 4,
+                DrawElementsType.UnsignedInt, 0);
+
+            Text.Unbind();
+            FontProgram.Disuse();
 
             // Swap and delegate back to base.
             Context.SwapBuffers();
@@ -431,15 +512,6 @@ namespace UpNet.Graphics
             base.OnResize(e);
         }
     }
-
-    public struct StackData
-    {
-        public int UserId { get; set; }
-        public int Id { get; set; }
-        public string Title { get; set; }
-        public bool Completed { get; set; }
-    }
-
 
     class GameProgram
     {

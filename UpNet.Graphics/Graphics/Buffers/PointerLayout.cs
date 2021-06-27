@@ -27,22 +27,22 @@ namespace UpNet.Graphics.Graphics.Buffers
         /// <summary>
         /// The stride of data elements.
         /// </summary>
-        public int Stride { get; }
+        public Unit Stride { get; }
 
         /// <summary>
         /// The offset of data elements.
         /// </summary>
-        public int Offset { get; }
+        public Unit Offset { get; }
 
         /// <summary>
         /// Constructs the pointer layout with the given values.
         /// </summary>
         /// <param name="size">The number of attributes referenced.</param>
         /// <param name="type">The component type.</param>
-        /// <param name="normalized">True if the pointer should define normalized data.</param>
         /// <param name="stride">The stride of data elements.</param>
         /// <param name="offset">The offset of data elements.</param>
-        public PointerLayout(int size, VertexAttribPointerType type, bool normalized, int stride, int offset)
+        /// <param name="normalized">True if the pointer should define normalized data.</param>
+        public PointerLayout(int size, VertexAttribPointerType type, Unit stride, Unit offset, bool normalized = false)
         {
             // Transfer all values.
             Size = size;
@@ -51,6 +51,32 @@ namespace UpNet.Graphics.Graphics.Buffers
             Stride = stride;
             Offset = offset;
         }
+
+        /// <summary>
+        /// Constructs the pointer layout with the given values.
+        /// </summary>
+        /// <param name="size">The number of attributes referenced.</param>
+        /// <param name="type">The component type.</param>
+        /// <param name="stride">The stride of data elements.</param>
+        /// <param name="normalized">True if the pointer should define normalized data.</param>
+        public PointerLayout(int size, VertexAttribPointerType type, Unit stride, bool normalized = false)
+            : this(size, type, stride, 0, normalized)
+        {
+            // Do nothing.
+        }
+
+        /// <summary>
+        /// Constructs the pointer layout with the given values.
+        /// </summary>
+        /// <param name="size">The number of attributes referenced.</param>
+        /// <param name="type">The component type.</param>
+        /// <param name="normalized">True if the pointer should define normalized data.</param>
+        public PointerLayout(int size, VertexAttribPointerType type, bool normalized = false)
+            : this(size, type, 1.Elements(), 0, normalized)
+        {
+            // Do nothing.
+        }
+
 
         /// <summary>
         /// Returns a representation of the <see cref="Uniform"/>, default values are omitted.
@@ -63,9 +89,9 @@ namespace UpNet.Graphics.Graphics.Buffers
                 result.Append($", {nameof(Size)}: {Size}");
             if (false != Normalized)
                 result.Append($", {nameof(Normalized)}: {Normalized}");
-            if (0 != Stride)
+            if (0 != Stride.Value)
                 result.Append($", {nameof(Stride)}: {Stride}");
-            if (0 != Offset)
+            if (0 != Offset.Value)
                 result.Append($", {nameof(Offset)}: {Offset}");
 
             return result.ToString();

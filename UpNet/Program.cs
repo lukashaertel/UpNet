@@ -1,32 +1,28 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Concurrent;
+using System.Buffers;
 using System.Collections.Generic;
+using System.ComponentModel.Design;
+using System.Globalization;
 using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography.X509Certificates;
+using System.Linq.Expressions;
+using System.Net;
+using System.Reflection;
+using System.Security.Claims;
+using System.Security.Principal;
 using System.Threading;
-using System.Threading.Tasks;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Running;
+using Castle.DynamicProxy;
+using Castle.DynamicProxy.Generators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
-using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.InMemory.Infrastructure.Internal;
-using Microsoft.EntityFrameworkCore.InMemory.Storage.Internal;
-using Microsoft.EntityFrameworkCore.Internal;
-using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
+using ILogger = Castle.Core.Logging.ILogger;
 
 namespace UpNet
 {
-    class Entity
+    public class Entity
     {
         public int Id { get; set; }
 
@@ -45,207 +41,182 @@ namespace UpNet
         public override string ToString() => $"{nameof(Id)}: {Id}, {nameof(X)}: {X}, {nameof(Y)}: {Y}";
     }
 
-    class CollectingNotifier : IInternalEntityEntryNotifier
+    public class DBC : DbContext
     {
-        public static ConcurrentDictionary<
-            (InternalEntityEntry Entry, INavigation Navigation),
-            (object OldValue, object NewValue)> NavigationReferenceChanges { get; } = new();
-
-        public static ConcurrentDictionary<
-            (InternalEntityEntry Entry, INavigationBase Navigation),
-            (IEnumerable<object> Added, IEnumerable<object> Removed)> NavigationCollectionChanges { get; } = new();
-
-        private IInternalEntityEntryNotifier DelegateTo { get; }
-
-        public CollectingNotifier(
-            ILocalViewListener localViewListener,
-            IChangeDetector changeDetector,
-            INavigationFixer navigationFixer) =>
-            DelegateTo = new InternalEntityEntryNotifier(
-                localViewListener,
-                changeDetector,
-                navigationFixer);
-
-        public void StateChanging(InternalEntityEntry entry, EntityState newState)
+        public static Action<DbContext> CreateUndo(DbContext context)
         {
-            Console.WriteLine($"State changing");
-            DelegateTo.StateChanging(entry, newState);
+            Action<DbContext> result = _ => { };
+
+            foreach (var entry in context.ChangeTracker.Entries())
+                switch (entry.State)
+                {
+                    // Added, remove it.
+                    case EntityState.Added:
+                    {
+                        // Capture relevant values.
+                        var type = entry.Metadata.ClrType;
+                        var keys = entry.PrimaryKey();
+                        var capture = result;
+
+                        // Amend undo.
+                        result = context =>
+                        {
+                            capture(context);
+                            var target = context.Find(type, keys);
+                            context.Remove(target);
+                        };
+                        break;
+                    }
+
+                    // Removed, restore it.
+                    case EntityState.Deleted:
+                    {
+                        // Capture relevant values.
+                        var type = entry.Metadata.ClrType;
+                        var capture = result;
+                        var values = entry.OriginalValues.Clone();
+
+                        // Amend undo.
+                        result = context =>
+                        {
+                            capture(context);
+                            var target = Activator.CreateInstance(type)!;
+                            var targetEntry = context.Add(target);
+                            targetEntry.CurrentValues.SetValues(values);
+                        };
+                        break;
+                    }
+
+                    // Modified, change it back.
+                    case EntityState.Modified:
+                    {
+                        // Capture relevant values.
+                        var type = entry.Metadata.ClrType;
+                        var keys = entry.PrimaryKey();
+                        var capture = result;
+                        var values = entry.OriginalValues.Clone();
+
+                        // Amend undo.
+                        result = context =>
+                        {
+                            capture(context);
+                            var target = context.Find(type, keys);
+                            var targetEntry = context.Entry(target);
+                            targetEntry.CurrentValues.SetValues(values);
+                        };
+                        break;
+                    }
+                }
+
+            return result;
         }
 
-        public void StateChanged(InternalEntityEntry entry, EntityState oldState, bool fromQuery)
-        {
-            Console.WriteLine($"State changed");
-            DelegateTo.StateChanged(entry, oldState, fromQuery);
-        }
-
-        public void TrackedFromQuery(InternalEntityEntry entry)
-        {
-            DelegateTo.TrackedFromQuery(entry);
-        }
-
-        public void NavigationReferenceChanged(InternalEntityEntry entry, INavigation navigation, object oldValue,
-            object newValue)
-        {
-            //todo: aggregate, could be multiple changes.
-            NavigationReferenceChanges[(entry, navigation)] = (oldValue, newValue);
-            DelegateTo.NavigationReferenceChanged(entry, navigation, oldValue, newValue);
-        }
-
-        public void NavigationCollectionChanged(InternalEntityEntry entry, INavigationBase navigationBase,
-            IEnumerable<object> added,
-            IEnumerable<object> removed)
-        {
-            //todo: aggregate, could be multiple changes.
-            NavigationCollectionChanges[(entry, navigationBase)] = (added, removed);
-            DelegateTo.NavigationCollectionChanged(entry, navigationBase, added, removed);
-        }
-
-        public void KeyPropertyChanged(InternalEntityEntry entry, IProperty property, IEnumerable<IKey> keys,
-            IEnumerable<IForeignKey> foreignKeys,
-            object oldValue, object newValue)
-        {
-            DelegateTo.KeyPropertyChanged(entry, property, keys, foreignKeys, oldValue, newValue);
-        }
-
-        public void PropertyChanged(InternalEntityEntry entry, IPropertyBase property, bool setModified)
-        {
-            Console.WriteLine($"Property {property.Name} changing");
-            DelegateTo.PropertyChanged(entry, property, setModified);
-        }
-
-        public void PropertyChanging(InternalEntityEntry entry, IPropertyBase property)
-        {
-            Console.WriteLine($"Property {property.Name} changed");
-            DelegateTo.PropertyChanging(entry, property);
-        }
-    }
-
-    class DBC : DbContext
-    {
         public DbSet<Entity> Entities { get; set; }
 
         public DBC(DbContextOptions options) : base(options)
         {
-            // base.ChangeTracker.Tracked += ExternalizeNavigations;
-        }
-
-        public override void Dispose()
-        {
-            base.Dispose();
-        }
-
-        public override ValueTask DisposeAsync()
-        {
-            return base.DisposeAsync();
-        }
-
-        // TODO: Save relationship snapshots and allow access.
-        // public override ChangeTracker ChangeTracker =>
-        //     throw new InvalidOperationException("Enumerating entries invalidates relationship snapshots");
-        //
-        // protected ChangeTracker UnsafeChangeTracker =>
-        //     base.ChangeTracker;
-
-        public override int SaveChanges(bool acceptAllChangesOnSuccess)
-        {
-            var navReferenceChanges = CollectingNotifier.NavigationReferenceChanges.ToList();
-            CollectingNotifier.NavigationReferenceChanges.Clear();
-
-            var navCollectionChanges = CollectingNotifier.NavigationCollectionChanges.ToList();
-            CollectingNotifier.NavigationCollectionChanges.Clear();
-            Console.WriteLine();
-            // var cd = (IDbContextDependencies) this;
-            //
-            // var reset = new Action<DbContext>(_ => { });
-            //
-            // foreach (var internalEntityEntry in cd.StateManager.Entries)
-            // {
-            //     if (internalEntityEntry.EntityState == EntityState.Unchanged)
-            //         continue;
-            //
-            //     var key = internalEntityEntry.PrimaryKey();
-            //     foreach (var property in internalEntityEntry.EntityType.GetProperties())
-            //     {
-            //         var ov = internalEntityEntry.GetOriginalValue(property);
-            //         var cv = internalEntityEntry.GetCurrentValue(property);
-            //
-            //
-            //         Console.Write(key);
-            //         Console.Write(".");
-            //         Console.Write(property.Name);
-            //         Console.Write(": ");
-            //         Console.Write($"{ov}");
-            //         Console.Write(" -> ");
-            //         Console.Write($"{cv}");
-            //         Console.WriteLine();
-            //     }
-            //
-            //     foreach (var navigation in internalEntityEntry.EntityType.GetNavigations())
-            //     {
-            //         var ov = internalEntityEntry.GetRelationshipSnapshotValue(navigation);
-            //         var cv = internalEntityEntry.GetCurrentValue(navigation);
-            //         if (ov is not IEnumerable<object> ove) continue;
-            //         if (cv is not IEnumerable<object> cve) continue;
-            //
-            //         ove = ove.Select(o => cd.StateManager.TryGetEntry(o, navigation.TargetEntityType).PrimaryKey())
-            //             .ToList();
-            //         cve = cve.Select(o => cd.StateManager.TryGetEntry(o, navigation.TargetEntityType).PrimaryKey())
-            //             .ToList();
-            //
-            //         Console.Write(key);
-            //         Console.Write(".");
-            //         Console.Write(navigation.Name);
-            //         Console.Write(": ");
-            //         Console.Write($"[{string.Join(",", ove)}]");
-            //         Console.Write(" -> ");
-            //         Console.Write($"[{string.Join(",", cve)}]");
-            //         Console.WriteLine();
-            //     }
-            // }
-            //
-            //
-            // // // TODO: All
-            // // foreach (var entry in ChangeTracker.Entries().ToList())
-            // // {
-            // //     foreach (var property in entry.Navigations)
-            // //     {
-            // //         var before = OriginalValues.GetValueOrDefault((entry.Entity, property.Metadata));
-            // //         var now = property.CurrentValue;
-            // //
-            // //         Console.WriteLine(
-            // //             $"Change: {entry.Entity}.{property.Metadata.Name}: {ValueToString(before)} to {ValueToString(now)}");
-            // //     }
-            // // }
-            //
-
-            return base.SaveChanges(acceptAllChangesOnSuccess);
         }
     }
+
+    [Serializable]
+    public class XInterceptor : IInterceptor
+    {
+        public void Intercept(IInvocation invocation)
+        {
+            Console.WriteLine(
+                $"{invocation.TargetType.Name}.{invocation.Method.Name}({string.Join(", ", invocation.Arguments)})");
+            invocation.Proceed();
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Parameter)]
+    public sealed class FromServicesAttribute : Attribute
+    {
+        public FromServicesAttribute()
+        {
+        }
+    }
+
+    [Serializable]
+    public class SInterceptor : IInterceptor
+    {
+        public IServiceProvider Provider { get; }
+
+        public SInterceptor(IServiceProvider provider) =>
+            Provider = provider;
+
+        public void Intercept(IInvocation invocation)
+        {
+            var scope = Provider.CreateScope();
+            var parameterInfos = invocation.Method.GetParameters();
+            for (var i = 0; i < parameterInfos.Length; i++)
+            {
+                var parameterInfo = parameterInfos[i];
+                if (null != parameterInfo.GetCustomAttribute<FromServicesAttribute>())
+                    invocation.SetArgumentValue(i, scope.ServiceProvider.GetService(parameterInfo.ParameterType));
+            }
+
+            invocation.Proceed();
+        }
+    }
+
+    public abstract class ExchangeController
+    {
+        public virtual void DoThing(int x, int y, [FromServices] DBC context = default!)
+        {
+            context.Entities.Add(new Entity {X = x, Y = y});
+            context.SaveChanges();
+        }
+
+        public virtual void DoOther([FromServices] DBC context = default!)
+        {
+            foreach (var entity in context.Entities)
+                Console.WriteLine(entity);
+        }
+    }
+
 
     public class Program
     {
         static void Main(string[] args)
         {
-            var serviceCollection = new ServiceCollection();
-            serviceCollection.AddDbContext<DBC>(options =>
+            var services = new ServiceCollection();
+            services.AddLogging(builder =>
             {
-                options.UseInMemoryDatabase("main");
-                options.ReplaceService<IInternalEntityEntryNotifier,
-                    InternalEntityEntryNotifier,
-                    CollectingNotifier>();
+                builder.AddFilter(l => LogLevel.Trace <= l);
+                builder.AddConsole();
             });
+
+
+            return;
+            var serviceCollection = new ServiceCollection();
+            serviceCollection.AddDbContext<DBC>(options => options.UseInMemoryDatabase("main"));
 
             var serviceProviderFactory = new DefaultServiceProviderFactory();
             var serviceProvider = serviceProviderFactory.CreateServiceProvider(serviceCollection);
+
+
+            var proxyGenerator = new ProxyGenerator();
+            var exchangeInterceptor = new XInterceptor();
+            var serviceInterceptor = new SInterceptor(serviceProvider);
+            var proxy = proxyGenerator.CreateClassProxy<ExchangeController>(
+                exchangeInterceptor,
+                serviceInterceptor
+            );
+            proxy.DoThing(2, 5);
+            proxy.DoOther();
+            return;
 
             Console.WriteLine("Init");
             using (var scope = serviceProvider.CreateScope())
             using (var dbc = scope.ServiceProvider.GetRequiredService<DBC>())
             {
-                var first = new Entity {X = 5f, Y = 0f};
-                var second = new Entity {X = 10f, Y = 20f};
+                var first = new Entity {Id = 1, X = 5f, Y = 0f};
+                var second = new Entity {Id = 2, X = 10f, Y = 20f};
+                var extra = new Entity {Id = 3, X = 1f, Y = 2f};
                 dbc.Entities.Add(first);
                 dbc.Entities.Add(second);
+                dbc.Entities.Add(extra);
 
                 first.RelatesTo.Add(second);
                 second.RelatesTo.Add(first);
@@ -254,18 +225,30 @@ namespace UpNet
 
             Console.WriteLine();
 
+            Action<DBC>? sud;
+
             Console.WriteLine("Change");
             using (var scope = serviceProvider.CreateScope())
             using (var dbc = scope.ServiceProvider.GetRequiredService<DBC>())
             {
-                var first = dbc.Entities.First();
-                var second = dbc.Entities.Last();
-                Console.WriteLine("Setting x");
+                dbc.Entities.Remove(dbc.Entities.Find(3));
+
+                var first = dbc.Entities.Find(1);
+                var second = dbc.Entities.Find(2);
                 second.X += 5;
-                Console.WriteLine("Set x");
 
                 first.RelatesTo.Clear();
                 second.RelatesTo.Clear();
+                dbc.SaveChanges();
+
+                sud = DBC.CreateUndo(dbc);
+            }
+
+            Console.WriteLine("Undoing");
+            using (var scope = serviceProvider.CreateScope())
+            using (var dbc = scope.ServiceProvider.GetRequiredService<DBC>())
+            {
+                sud(dbc);
                 dbc.SaveChanges();
             }
 

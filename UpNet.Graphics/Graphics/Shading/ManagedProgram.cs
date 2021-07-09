@@ -55,11 +55,11 @@ namespace UpNet.Graphics.Graphics.Shading
         {
             // Ensure no fault.
             GLException.ThrowPreceding();
-            
+
             // Create program, initialize lists on empty.
             Reference = GL.CreateProgram();
             GLException.ThrowGlErrors("Error creating program");
-            
+
             Uniforms = Array.AsReadOnly(Array.Empty<Uniform>());
             Attribs = Array.AsReadOnly(Array.Empty<Attrib>());
         }
@@ -74,7 +74,7 @@ namespace UpNet.Graphics.Graphics.Shading
         {
             // Ensure no fault.
             GLException.ThrowPreceding();
-            
+
             // Check state.
             CheckNotDisposed();
 
@@ -87,7 +87,7 @@ namespace UpNet.Graphics.Graphics.Shading
             // If shader compilation failed, throw an exception.
             GL.GetShaderInfoLog(shader, out var info);
             if (string.Empty != info)
-                throw new CompileException($"Error compiling shader for type {type}", info, type, body);
+                throw new CompileException($"Error compiling shader for type {type}: {info}", info, type, body);
 
             // Attach the shader, throw errors.
             GL.AttachShader(Reference, shader);
@@ -102,7 +102,7 @@ namespace UpNet.Graphics.Graphics.Shading
         {
             // Ensure no fault.
             GLException.ThrowPreceding();
-            
+
             // Check state.
             CheckNotDisposed();
 

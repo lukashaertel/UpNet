@@ -7,11 +7,13 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Cyotek.Drawing.BitmapFont;
+using Microsoft.Diagnostics.Tracing.Parsers.MicrosoftWindowsTCPIP;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using SixLabors.ImageSharp.ColorSpaces;
 using SixLabors.ImageSharp.PixelFormats;
 using UpNet.Graphics.Graphics;
 using UpNet.Graphics.Graphics.Buffers;
@@ -59,6 +61,7 @@ namespace UpNet.Graphics
         }
 
         private ManagedProgram Program { get; set; }
+        private ManagedProgram SplineProgram { get; set; }
         private ManagedVertexArray Planet { get; set; }
 
         private ManagedBuffer PlanetPosition { get; set; }
@@ -76,6 +79,7 @@ namespace UpNet.Graphics
         private ManagedBuffer TextElements { get; set; }
 
 
+        private ManagedTexture2D Noise { get; set; }
         private ManagedTexture2D Ground { get; set; }
         private ManagedTexture2D Clouds { get; set; }
 
@@ -87,6 +91,30 @@ namespace UpNet.Graphics
 
         private Matrix4 ProjectionView { get; set; }
         private Vector3 Eye { get; set; } = Vector3.UnitZ * -4f;
+
+        private byte[] MakeNoise(int w, int h)
+        {
+            var perms1 = new byte[256];
+            new Random(0).NextBytes(perms1);
+            var perms2 = new byte[256];
+            new Random(1).NextBytes(perms2);
+            var perms3 = new byte[256];
+            new Random(2).NextBytes(perms3);
+            var sn1 = new SimplexNoise(perms1);
+            var sn2 = new SimplexNoise(perms2);
+            var sn3 = new SimplexNoise(perms3);
+            var noise = new byte[w * h * 3];
+
+            for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                noise[(y * w + x) * 3 + 0] = (byte) (sn1.Eval(x, y) * 255f);
+                noise[(y * w + x) * 3 + 1] = (byte) (sn2.Eval(x, y) * 255f);
+                noise[(y * w + x) * 3 + 2] = (byte) (sn3.Eval(x, y) * 255f);
+            }
+
+            return noise;
+        }
 
         private async Task LoadAsync()
         {
@@ -118,6 +146,23 @@ namespace UpNet.Graphics
 
             // Load shaders.
             (shaderVert, shaderFrag) = await Task.WhenAll(
+                File.ReadAllTextAsync("Resources/Spline.vert"),
+                File.ReadAllTextAsync("Resources/Spline.frag"));
+
+            SplineProgram = new ManagedProgram();
+            SplineProgram.AttachShader(ShaderType.VertexShader, shaderVert);
+            SplineProgram.AttachShader(ShaderType.FragmentShader, shaderFrag);
+            SplineProgram.Link();
+            SplineProgram.Use();
+            SplineProgram["uTint"].Set(1f, 1f, 1f, 1f);
+            SplineProgram["uHeight"].Set(TextureUnit.Texture1);
+            SplineProgram["uNoise"].Set(TextureUnit.Texture2);
+            SplineProgram["uHeightOffset"].Set(0.1f);
+            SplineProgram["uSpline"].Set(Matrix4.CreateScale(10.0f, 1.0f, 10.0f));
+            SplineProgram.Disuse();
+
+            // Load shaders.
+            (shaderVert, shaderFrag) = await Task.WhenAll(
                 File.ReadAllTextAsync("Resources/Font.vert"),
                 File.ReadAllTextAsync("Resources/Font.frag"));
 
@@ -141,6 +186,13 @@ namespace UpNet.Graphics
                 Image.LoadAsync<Rgba32>("Resources/worldheight.png"),
                 Image.LoadAsync<Rgba32>(fontImagePath));
 
+
+            Noise = new ManagedTexture2D(SizedInternalFormat.Rgb8, 512, 512);
+            Noise.WriteData(MakeNoise(Noise.Width, Noise.Height), PixelFormat.Rgb, PixelType.UnsignedByte);
+            Noise.WrapS = TextureWrapMode.MirroredRepeat;
+            Noise.WrapT = TextureWrapMode.MirroredRepeat;
+            Noise.GenerateMipMaps();
+
             // Create textures.
             Ground = Images.Load2DFrom(worldImage);
             Clouds = Images.Load2DFrom(cloudsImage);
@@ -149,6 +201,21 @@ namespace UpNet.Graphics
 
             var pos = Icosphere.DataPos;
             var ind = Icosphere.DataIndices;
+
+            PlanetPosition = new ManagedBuffer();
+            PlanetPosition.WriteData(pos);
+            PlanetTexCoord = new ManagedBuffer();
+            PlanetTexCoord.WriteData(Icosphere.ComputeTexCoords(pos));
+            PlanetNormal = new ManagedBuffer();
+            PlanetNormal.WriteData(Icosphere.ComputeNormals(pos));
+            PlanetBitangent = new ManagedBuffer();
+            PlanetBitangent.WriteData(Icosphere.ComputeBitangents(pos));
+            PlanetTangent = new ManagedBuffer();
+            PlanetTangent.WriteData(Icosphere.ComputeTangents(pos));
+            PlanetColor = new ManagedBuffer();
+            PlanetColor.WriteData(Icosphere.ComputeColors(pos));
+            PlanetElements = new ManagedBuffer(BufferTargetARB.ElementArrayBuffer);
+            PlanetElements.WriteData(ind);
 
 
             var attribPosition = Program.FindRequiredAttrib("aPosition");
@@ -161,44 +228,25 @@ namespace UpNet.Graphics
             Planet = new ManagedVertexArray();
             Planet.Bind();
             Planet.Enable(attribPosition);
-            PlanetPosition = new ManagedBuffer();
-            PlanetPosition.Bind();
-            PlanetPosition.WriteData(pos);
-            Planet.Apply(attribPosition, new PointerLayout(3, VertexAttribPointerType.Float));
-
             Planet.Enable(attribTexCoord);
-            PlanetTexCoord = new ManagedBuffer();
-            PlanetTexCoord.Bind();
-            PlanetTexCoord.WriteData(Icosphere.ComputeTexCoords(pos));
-            Planet.Apply(attribTexCoord, new PointerLayout(2, VertexAttribPointerType.Float));
-
             Planet.Enable(attribNormal);
-            PlanetNormal = new ManagedBuffer();
-            PlanetNormal.Bind();
-            PlanetNormal.WriteData(Icosphere.ComputeNormals(pos));
-            Planet.Apply(attribNormal, new PointerLayout(3, VertexAttribPointerType.Float));
-
             Planet.Enable(attribBitangent);
-            PlanetBitangent = new ManagedBuffer();
-            PlanetBitangent.Bind();
-            PlanetBitangent.WriteData(Icosphere.ComputeBitangents(pos));
-            Planet.Apply(attribBitangent, new PointerLayout(3, VertexAttribPointerType.Float));
-
             Planet.Enable(attribTangent);
-            PlanetTangent = new ManagedBuffer();
-            PlanetTangent.Bind();
-            PlanetTangent.WriteData(Icosphere.ComputeTangents(pos));
-            Planet.Apply(attribTangent, new PointerLayout(3, VertexAttribPointerType.Float));
-
             Planet.Enable(attribColor);
-            PlanetColor = new ManagedBuffer();
-            PlanetColor.Bind();
-            PlanetColor.WriteData(Icosphere.ComputeColors(pos));
-            Planet.Apply(attribColor, new PointerLayout(3, VertexAttribPointerType.UnsignedByte, normalized: true));
 
-            PlanetElements = new ManagedBuffer(BufferTargetARB.ElementArrayBuffer);
+            PlanetPosition.Bind();
+            Planet.Apply(attribPosition, new PointerLayout(3, VertexAttribPointerType.Float));
+            PlanetTexCoord.Bind();
+            Planet.Apply(attribTexCoord, new PointerLayout(2, VertexAttribPointerType.Float));
+            PlanetNormal.Bind();
+            Planet.Apply(attribNormal, new PointerLayout(3, VertexAttribPointerType.Float));
+            PlanetBitangent.Bind();
+            Planet.Apply(attribBitangent, new PointerLayout(3, VertexAttribPointerType.Float));
+            PlanetTangent.Bind();
+            Planet.Apply(attribTangent, new PointerLayout(3, VertexAttribPointerType.Float));
+            PlanetColor.Bind();
+            Planet.Apply(attribColor, new PointerLayout(3, VertexAttribPointerType.UnsignedByte, true));
             PlanetElements.Bind();
-            PlanetElements.WriteData(ind);
             Planet.Unbind();
 
             Text = new ManagedVertexArray();
@@ -408,10 +456,29 @@ namespace UpNet.Graphics
 
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
+            GL.ActiveTexture(TextureUnit.Texture2);
+            Noise.Bind();
             GL.ActiveTexture(TextureUnit.Texture1);
             Heightmap.Bind();
             GL.ActiveTexture(TextureUnit.Texture0);
             Ground.Bind();
+
+            GL.Enable(EnableCap.CullFace);
+            GL.Disable(EnableCap.Blend);
+
+            SplineProgram.Use();
+            SplineProgram["uModel"].Set(Matrix4.CreateRotationX(0.3f) *
+                                        Matrix4.CreateRotationY(totalSeconds / 60f));
+            SplineProgram["uPV"].Set(ProjectionView);
+            SplineProgram["uHeightScale"].Set(0.02f);
+
+            Planet.Bind();
+            GL.DrawElements(
+                PrimitiveType.Triangles,
+                PlanetElements.SizeInBytes / 4,
+                DrawElementsType.UnsignedInt, 0);
+            Planet.Unbind();
+            SplineProgram.Disuse();
 
             // Use shader. Set matrix to combined view and draw.
             Program.Use();

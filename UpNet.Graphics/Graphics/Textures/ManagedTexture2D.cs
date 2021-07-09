@@ -97,9 +97,12 @@ namespace UpNet.Graphics.Graphics.Textures
         {
             unsafe
             {
+                // Ensure no fault.
+                GLException.ThrowPreceding();
+
                 var revert = SwapIn();
                 fixed (void* pinned = &data.GetPinnableReference())
-                    GL.TexImage2D(Target, level, (int) InternalFormat, Width, Height, 0, format, type, pinned);
+                    GL.TexSubImage2D(Target, level, 0, 0, Width, Height, format, type, pinned);
                 SwapBackOut(revert);
             }
         }
@@ -116,9 +119,13 @@ namespace UpNet.Graphics.Graphics.Textures
         {
             unsafe
             {
+                // Ensure no fault.
+                GLException.ThrowPreceding();
+
                 var revert = SwapIn();
                 fixed (void* pinned = &data[0])
-                    GL.TexImage2D(Target, level, (int) InternalFormat, Width, Height, 0, format, type, pinned);
+                    GL.TexSubImage2D(Target, level, 0, 0, Width, Height, format, type, pinned);
+                GLException.ThrowGlErrors("Error writing texture data");
                 SwapBackOut(revert);
             }
         }
@@ -140,9 +147,13 @@ namespace UpNet.Graphics.Graphics.Textures
         {
             unsafe
             {
+                // Ensure no fault.
+                GLException.ThrowPreceding();
+
                 var revert = SwapIn();
                 fixed (void* pinned = &data.GetPinnableReference())
                     GL.TexSubImage2D(Target, level, xOffset, yOffset, width, height, format, type, pinned);
+                GLException.ThrowGlErrors("Error writing texture data");
                 SwapBackOut(revert);
             }
         }
@@ -164,9 +175,13 @@ namespace UpNet.Graphics.Graphics.Textures
         {
             unsafe
             {
+                // Ensure no fault.
+                GLException.ThrowPreceding();
+
                 var revert = SwapIn();
                 fixed (void* pinned = &data[0])
                     GL.TexSubImage2D(Target, level, xOffset, yOffset, width, height, format, type, pinned);
+                GLException.ThrowGlErrors("Error writing texture data");
                 SwapBackOut(revert);
             }
         }

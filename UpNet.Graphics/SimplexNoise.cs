@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace UpNet
+namespace UpNet.Graphics
 {
     public ref struct SimplexNoise
     {

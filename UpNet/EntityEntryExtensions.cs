@@ -16,7 +16,7 @@ namespace UpNet
         /// <summary>
         /// Compiled primary key accessors.
         /// </summary>
-        private static Dictionary<IEntityType, Func<EntityEntry, object>> CompiledKeyFunctions { get; } = new();
+        private static Dictionary<IEntityType, Func<EntityEntry, object[]>> CompiledKeyFunctions { get; } = new();
 
         /// <summary>
         /// The method info for getting a property.
@@ -36,7 +36,7 @@ namespace UpNet
         /// <param name="entry">The entry to get for.</param>
         /// <returns>Returns the array of the primary keys.</returns>
         /// <exception cref="ArgumentException">Thrown if the entry has no primary key.</exception>
-        public static object PrimaryKey(this EntityEntry entry)
+        public static object[] PrimaryKey(this EntityEntry entry)
         {
             // Try return from compiled.
             if (CompiledKeyFunctions.TryGetValue(entry.Metadata, out var func))
@@ -52,7 +52,7 @@ namespace UpNet
 
             // Make lambda for direct result of property access or array initializer.
             var param = Expression.Parameter(typeof(EntityEntry));
-            var lambda = Expression.Lambda<Func<EntityEntry, object>>(
+            var lambda = Expression.Lambda<Func<EntityEntry, object[]>>(
                 parameters: param,
                 body: Expression.NewArrayInit(typeof(object),
                     names.Select(name =>

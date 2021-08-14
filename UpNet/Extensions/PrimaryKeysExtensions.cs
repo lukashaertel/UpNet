@@ -6,12 +6,12 @@ using System.Reflection;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
 
-namespace UpNet
+namespace UpNet.Extensions
 {
     /// <summary>
-    /// Extends <see cref="EntityEntry"/>.
+    /// Extends <see cref="EntityEntry"/> for primary key computation.
     /// </summary>
-    public static class EntityEntryExtensions
+    public static class PrimaryKeysExtensions
     {
         /// <summary>
         /// Compiled primary key accessors.
